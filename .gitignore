@@ -25,6 +25,7 @@ npm-debug.log*
 data/raw/
 data/chroma/
 data/processed/*.json
+data/processed/backups/
 !data/processed/.gitkeep
 
 # OS / editor
