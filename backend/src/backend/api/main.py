@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routers import health
+from backend.api.routers import chat, health, recipes, restaurants
 from backend.core.config import get_settings
 from backend.core.logging import configure_logging
 
@@ -19,6 +19,9 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(chat.router)
+app.include_router(restaurants.router)
+app.include_router(recipes.router)
 
 
 def run() -> None:

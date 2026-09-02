@@ -139,3 +139,19 @@ async def run_recommendation(user_input: str) -> AgentState:
         graph = build_graph(client, llm)
         result = await graph.ainvoke({"user_input": user_input})
     return result
+
+
+async def stream_recommendation(user_input: str):
+    """Yields {"stage": <node name>, "data": <node output>} as each node
+    completes, then a final {"stage": "done", "data": <full state>}."""
+    from backend.core.llm import get_agent_model
+
+    llm = get_agent_model()
+    async with MCPClient() as client:
+        graph = build_graph(client, llm)
+        final_state: dict = {"user_input": user_input}
+        async for update in graph.astream({"user_input": user_input}, stream_mode="updates"):
+            for node_name, node_output in update.items():
+                final_state.update(node_output)
+                yield {"stage": node_name, "data": node_output}
+        yield {"stage": "done", "data": final_state}
