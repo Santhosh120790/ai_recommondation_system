@@ -1,0 +1,37 @@
+# Course reference material — kept locally for context, never pushed
+docs/course-reference/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Data (large / generated — fetched or built by scripts)
+data/raw/
+data/chroma/
+data/processed/*.json
+!data/processed/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Docker
+*.pid
