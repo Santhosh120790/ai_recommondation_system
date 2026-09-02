@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -7,6 +8,8 @@ from backend.core.config import get_settings
 from backend.core.llm import get_chat_model, get_vision_model
 from backend.core.logging import configure_logging
 from backend.data_pipeline import captioning, fetch, repository, structuring
+from backend.agents.graph import run_recommendation
+from backend.mcp.client import MCPClient
 from backend.rag import fusion, retrieval, vectorstore
 
 configure_logging()
@@ -180,6 +183,40 @@ def fuse_search(
 ) -> None:
     for hit in fusion.fuse_rank(query, k=k, w_text=w_text, w_img=w_img):
         typer.echo(f"{hit['fused_score']:.4f}  [{hit['modality']:<7}]  {hit['name']}")
+
+
+@app.command("mcp-test")
+def mcp_test(
+    tool: str = typer.Option(None, help="Call this tool by name after connecting."),
+    args: str = typer.Option("{}", help="JSON-encoded arguments for --tool."),
+) -> None:
+    """Connect to the MCP server, list tools/resources, and optionally call one tool."""
+
+    async def _run() -> None:
+        async with MCPClient() as client:
+            tools = await client.list_tools()
+            typer.echo(f"Connected. Tools: {tools}")
+            if tool:
+                result = await client.call_tool(tool, json.loads(args))
+                typer.echo(f"Result: {result}")
+
+    asyncio.run(_run())
+
+
+@app.command("recommend")
+def recommend(user_input: str) -> None:
+    """Run the full multi-agent recommendation workflow for a user's stated preferences."""
+
+    async def _run() -> None:
+        result = await run_recommendation(user_input)
+        typer.echo("\n=== USER PROFILE ===\n" + result.get("user_profile", ""))
+        typer.echo("\n=== CANDIDATES ===\n" + result.get("candidates", ""))
+        typer.echo("\n=== TREND ANALYSIS ===\n" + result.get("trend_analysis", ""))
+        typer.echo("\n=== STYLE ANALYSIS ===\n" + result.get("style_analysis", ""))
+        typer.echo("\n=== NUTRITION ANALYSIS ===\n" + result.get("nutrition_analysis", ""))
+        typer.echo("\n=== FINAL RECOMMENDATION ===\n" + result.get("final_recommendation", ""))
+
+    asyncio.run(_run())
 
 
 def run() -> None:
