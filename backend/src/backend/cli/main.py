@@ -7,6 +7,7 @@ from backend.core.config import get_settings
 from backend.core.llm import get_chat_model, get_vision_model
 from backend.core.logging import configure_logging
 from backend.data_pipeline import captioning, fetch, repository, structuring
+from backend.rag import fusion, retrieval, vectorstore
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -144,6 +145,41 @@ def restaurants_delete(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     typer.echo(f"Deleted restaurant item_id={item_id}")
+
+
+@app.command("build-index")
+def build_index() -> None:
+    """Build and persist the Chroma text + image vector collections."""
+    article_count, image_count = vectorstore.build_all_indexes()
+    typer.echo(f"Indexed {article_count} restaurant articles and {image_count} food images")
+
+
+@app.command("search-articles")
+def search_articles(
+    query: str,
+    k: int = typer.Option(5, help="Number of results."),
+    location: str = typer.Option(None, help="Filter by exact location metadata."),
+) -> None:
+    where = {"location": location} if location else None
+    for hit in retrieval.retrieve_articles(query, k=k, where=where):
+        typer.echo(f"{hit['distance']:.4f}  {hit['metadata']['name']:<30}  {hit['metadata']['location']}")
+
+
+@app.command("search-images")
+def search_images(query: str, k: int = typer.Option(5, help="Number of results.")) -> None:
+    for hit in retrieval.retrieve_images_by_text(query, k=k):
+        typer.echo(f"{hit['distance']:.4f}  {hit['metadata']['name']}")
+
+
+@app.command("fuse-search")
+def fuse_search(
+    query: str,
+    k: int = typer.Option(5, help="Top-k per modality before fusion."),
+    w_text: float = typer.Option(0.5, help="Weight for article/text results."),
+    w_img: float = typer.Option(0.5, help="Weight for image results."),
+) -> None:
+    for hit in fusion.fuse_rank(query, k=k, w_text=w_text, w_img=w_img):
+        typer.echo(f"{hit['fused_score']:.4f}  [{hit['modality']:<7}]  {hit['name']}")
 
 
 def run() -> None:
