@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Loader2, Send } from "lucide-react";
+import { ChevronDown, Loader2, RotateCcw, Send } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,10 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const busy = stage !== null;
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The backend keeps per-thread conversation memory (LangGraph checkpointer) —
+  // reusing the same thread_id across turns is what makes follow-ups like "make
+  // it cheaper" work without repeating context. Cleared by "New conversation".
+  const threadIdRef = useRef<string | undefined>(undefined);
 
   async function send(message: string) {
     if (!message.trim() || busy) return;
@@ -56,34 +60,56 @@ export default function ChatPage() {
 
     let candidates: Candidate[] = [];
     try {
-      await streamChat(message, (event) => {
-        if (event.stage === "error") {
-          setError(String(event.data.message ?? "Something went wrong."));
-          return;
-        }
-        if (event.stage === "retrieve" && typeof event.data.candidates === "string") {
-          try {
-            candidates = JSON.parse(event.data.candidates);
-          } catch {
-            candidates = [];
+      await streamChat(
+        message,
+        (event) => {
+          if (event.stage === "thread" && typeof event.data.thread_id === "string") {
+            threadIdRef.current = event.data.thread_id;
+            return;
           }
-        }
-        if (event.stage === "done") {
-          const finalText = String(event.data.final_recommendation ?? "No recommendation produced.");
-          setTurns((prev) => [...prev, { role: "assistant", content: finalText, candidates }]);
-          setStage(null);
-        } else {
-          setStage(event.stage);
-        }
-      });
+          if (event.stage === "error") {
+            setError(String(event.data.message ?? "Something went wrong."));
+            return;
+          }
+          if (event.stage === "retrieve" && typeof event.data.candidates === "string") {
+            try {
+              candidates = JSON.parse(event.data.candidates);
+            } catch {
+              candidates = [];
+            }
+          }
+          if (event.stage === "done") {
+            const finalText = String(event.data.final_recommendation ?? "No recommendation produced.");
+            setTurns((prev) => [...prev, { role: "assistant", content: finalText, candidates }]);
+            setStage(null);
+          } else {
+            setStage(event.stage);
+          }
+        },
+        { threadId: threadIdRef.current }
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Chat request failed.");
       setStage(null);
     }
   }
 
+  function newConversation() {
+    threadIdRef.current = undefined;
+    setTurns([]);
+    setError(null);
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 p-4">
+      {turns.length > 0 && (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={newConversation} disabled={busy}>
+            <RotateCcw className="size-3.5" />
+            New conversation
+          </Button>
+        </div>
+      )}
       <ScrollArea className="flex-1 rounded-lg border" ref={scrollRef}>
         <div className="flex flex-col gap-4 p-4">
           {turns.length === 0 && (

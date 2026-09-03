@@ -10,6 +10,7 @@ const TITLES: Record<string, string> = {
   "/": "Dashboard",
   "/chat": "Chat",
   "/manage": "Manage restaurants",
+  "/recipes": "Recipes",
 };
 
 export function SiteHeader() {

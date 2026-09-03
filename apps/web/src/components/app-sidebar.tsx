@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, MessageCircle, UtensilsCrossed } from "lucide-react";
+import { ChefHat, LayoutDashboard, MessageCircle, UtensilsCrossed } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -19,6 +19,7 @@ const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/manage", label: "Manage", icon: UtensilsCrossed },
+  { href: "/recipes", label: "Recipes", icon: ChefHat },
 ];
 
 export function AppSidebar() {

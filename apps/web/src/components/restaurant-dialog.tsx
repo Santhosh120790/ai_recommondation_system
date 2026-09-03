@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { CuisineTile } from "@/components/cuisine-tile";
 import {
   Dialog,
   DialogContent,
@@ -158,6 +159,18 @@ export function RestaurantDialog({
               {structuring ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
               Structure with AI
             </Button>
+          </div>
+        )}
+
+        {hasPreview && (
+          <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3">
+            <CuisineTile name={form.name} foodStyle={form.food_style} type={form.type} size={44} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{form.name || "Untitled restaurant"}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {form.food_style || form.type || "Illustrated dish art preview"}
+              </div>
+            </div>
           </div>
         )}
 

@@ -1,5 +1,13 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+/** Recipe.image_path is a relative, backslash-joined path from the data
+ * pipeline (e.g. "images\\recipe1.png") — normalize it and point at the
+ * backend's /images static mount. Returns null when there's no photo. */
+export function recipeImageUrl(imagePath: string | null): string | null {
+  if (!imagePath) return null;
+  return `${API_URL}/${imagePath.replace(/\\/g, "/")}`;
+}
+
 export interface Restaurant {
   item_id: number;
   name: string;
@@ -76,22 +84,25 @@ export const api = {
 };
 
 export interface ChatEvent {
-  stage: "profile" | "retrieve" | "trends" | "styles" | "nutrition" | "recommend" | "done" | "error";
+  stage: "thread" | "profile" | "retrieve" | "trends" | "styles" | "nutrition" | "recommend" | "done" | "error";
   data: Record<string, unknown>;
 }
 
 /** Manually parses the SSE stream from POST /chat/stream (EventSource doesn't support
- * POST bodies, so we read the fetch body stream and parse `event:`/`data:` blocks). */
+ * POST bodies, so we read the fetch body stream and parse `event:`/`data:` blocks).
+ *
+ * Pass the `thread_id` from a prior call's "thread" event to continue that same
+ * conversation (the backend keeps per-thread memory) — omit it to start a new one. */
 export async function streamChat(
   message: string,
   onEvent: (event: ChatEvent) => void,
-  signal?: AbortSignal
+  options?: { threadId?: string; signal?: AbortSignal }
 ): Promise<void> {
   const res = await fetch(`${API_URL}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
-    signal,
+    body: JSON.stringify({ message, thread_id: options?.threadId }),
+    signal: options?.signal,
   });
   if (!res.ok || !res.body) {
     throw new Error(`Chat stream failed: ${res.status} ${res.statusText}`);

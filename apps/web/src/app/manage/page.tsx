@@ -4,6 +4,7 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { CuisineTile } from "@/components/cuisine-tile";
 import { RestaurantDialog } from "@/components/restaurant-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -93,6 +94,7 @@ export default function ManagePage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-14" />
                 <TableHead>Name</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Cuisine</TableHead>
@@ -104,6 +106,9 @@ export default function ManagePage() {
             <TableBody>
               {filtered.map((r) => (
                 <TableRow key={r.item_id}>
+                  <TableCell>
+                    <CuisineTile name={r.name} foodStyle={r.food_style} type={r.type} size={36} />
+                  </TableCell>
                   <TableCell className="font-medium">{r.name}</TableCell>
                   <TableCell>{r.location}</TableCell>
                   <TableCell>{r.food_style}</TableCell>
@@ -128,7 +133,7 @@ export default function ManagePage() {
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                     No restaurants match your search.
                   </TableCell>
                 </TableRow>
