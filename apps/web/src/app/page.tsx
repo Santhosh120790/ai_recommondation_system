@@ -1,69 +1,111 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { MapPin, MessageCircle, Salad, Star, Store, UtensilsCrossed } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api, type Stats } from "@/lib/api";
+
+const TILES = [
+  { key: "restaurants" as const, label: "Restaurants", icon: Store, color: "#eb6834" },
+  { key: "recipes" as const, label: "Recipes", icon: UtensilsCrossed, color: "#2a78d6" },
+  { key: "reviews" as const, label: "Reviews captioned", icon: Salad, color: "#e87ba4" },
+  { key: "cuisines" as const, label: "Cuisines covered", icon: MapPin, color: "#1baf7a" },
+  { key: "locations" as const, label: "Neighborhoods", icon: MapPin, color: "#eda100" },
+];
+
+export default function DashboardPage() {
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  useEffect(() => {
+    api.getStats().then(setStats).catch(() => setStats(null));
+  }, []);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-4">
+      <div>
+        <h2 className="text-2xl font-semibold">Welcome back 👋</h2>
+        <p className="text-muted-foreground">
+          A snapshot of the restaurant &amp; recipe knowledge base powering your recommendations.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {TILES.map((tile) => (
+          <Card key={tile.key}>
+            <CardContent className="flex flex-col gap-3 p-4">
+              <div
+                className="flex size-10 items-center justify-center rounded-xl"
+                style={{ backgroundColor: `${tile.color}26`, color: tile.color }}
+              >
+                <tile.icon className="size-5" />
+              </div>
+              <div>
+                {stats ? (
+                  <div className="text-2xl font-semibold tabular-nums">{stats[tile.key]}</div>
+                ) : (
+                  <Skeleton className="h-8 w-16" />
+                )}
+                <div className="text-sm text-muted-foreground">{tile.label}</div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-4">
+            <div
+              className="flex size-10 items-center justify-center rounded-xl"
+              style={{ backgroundColor: "#4a3aa726", color: "#4a3aa7" }}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              <Star className="size-5" />
+            </div>
+            <div>
+              {stats ? (
+                <div className="text-2xl font-semibold tabular-nums">{stats.avg_rating ?? "—"}</div>
+              ) : (
+                <Skeleton className="h-8 w-16" />
+              )}
+              <div className="text-sm text-muted-foreground">Average rating</div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/chat">
+          <Card className="h-full transition-colors hover:bg-accent">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <MessageCircle className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">Ask for a recommendation</div>
+                <div className="text-sm text-muted-foreground">
+                  Chat with the multi-agent assistant for restaurants &amp; recipes.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/manage">
+          <Card className="h-full transition-colors hover:bg-accent">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Store className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">Manage restaurants</div>
+                <div className="text-sm text-muted-foreground">
+                  Browse, add, edit, and delete restaurant records.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
     </div>
   );
 }

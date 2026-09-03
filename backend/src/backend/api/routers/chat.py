@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -16,10 +16,12 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest) -> EventSourceResponse:
+async def chat_stream(body: ChatRequest, request: Request) -> EventSourceResponse:
+    mcp_client = request.app.state.mcp_client
+
     async def event_generator():
         try:
-            async for event in stream_recommendation(request.message):
+            async for event in stream_recommendation(body.message, client=mcp_client):
                 yield {"event": event["stage"], "data": json.dumps(event["data"], ensure_ascii=False)}
         except Exception as exc:
             logger.exception("Chat stream failed")

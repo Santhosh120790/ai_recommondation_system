@@ -131,27 +131,44 @@ def build_graph(client: MCPClient, llm: BaseChatModel) -> CompiledStateGraph:
     return graph.compile()
 
 
-async def run_recommendation(user_input: str) -> AgentState:
+async def run_recommendation(user_input: str, client: MCPClient | None = None) -> AgentState:
+    """If `client` is omitted, opens (and tears down) a one-off MCP connection —
+    fine for the CLI, but the API layer should always pass its long-lived client
+    (see api/main.py's lifespan) so the embedding models aren't cold-loaded in a
+    fresh subprocess on every request."""
     from backend.core.llm import get_agent_model
 
     llm = get_agent_model()
-    async with MCPClient() as client:
+    if client is not None:
         graph = build_graph(client, llm)
-        result = await graph.ainvoke({"user_input": user_input})
-    return result
+        return await graph.ainvoke({"user_input": user_input})
+
+    async with MCPClient() as owned_client:
+        graph = build_graph(owned_client, llm)
+        return await graph.ainvoke({"user_input": user_input})
 
 
-async def stream_recommendation(user_input: str):
+async def stream_recommendation(user_input: str, client: MCPClient | None = None):
     """Yields {"stage": <node name>, "data": <node output>} as each node
     completes, then a final {"stage": "done", "data": <full state>}."""
     from backend.core.llm import get_agent_model
 
     llm = get_agent_model()
-    async with MCPClient() as client:
-        graph = build_graph(client, llm)
+
+    async def _run(active_client: MCPClient):
+        graph = build_graph(active_client, llm)
         final_state: dict = {"user_input": user_input}
         async for update in graph.astream({"user_input": user_input}, stream_mode="updates"):
             for node_name, node_output in update.items():
                 final_state.update(node_output)
                 yield {"stage": node_name, "data": node_output}
         yield {"stage": "done", "data": final_state}
+
+    if client is not None:
+        async for event in _run(client):
+            yield event
+        return
+
+    async with MCPClient() as owned_client:
+        async for event in _run(owned_client):
+            yield event
