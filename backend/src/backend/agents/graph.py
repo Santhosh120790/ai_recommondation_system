@@ -7,14 +7,32 @@ Expert (LangGraph waits for all three predecessors before running it).
 
 Tool access (retrieval) goes through a live `MCPClient`, not direct RAG
 calls — the MCP server is the actual data/tool layer for the agents.
+
+Cross-cutting concerns (the "middleware" layer, since this graph is
+hand-built rather than going through `create_agent`'s middleware slot):
+- every LLM call is retried on transient failure (`_ask`)
+- the graph only ever calls MCP tools through `client.call_tool_as_agent`,
+  which enforces a read-only allowlist — see mcp/client.py. Destructive
+  writes (add/delete restaurant) are reachable only from the FastAPI CRUD
+  routers, driven by an explicit human action in the UI, never from agent
+  reasoning.
+
+Memory: `build_graph` accepts a `checkpointer`. Combined with a `thread_id`
+in the invoke config, LangGraph persists `AgentState` per thread and the
+`add_messages` reducer on `messages` appends each new turn rather than
+replacing it, so follow-up messages ("make it cheaper") see prior context.
 """
 
 import json
 import logging
+from typing import AsyncIterator
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from backend.agents.configs import (
     FOOD_STYLE_EXPERT,
@@ -31,6 +49,15 @@ from backend.mcp.client import MCPClient
 logger = logging.getLogger(__name__)
 
 
+def _format_transcript(messages: list) -> str:
+    lines = []
+    for m in messages:
+        role = "User" if isinstance(m, HumanMessage) else "Assistant"
+        lines.append(f"{role}: {m.content}")
+    return "\n".join(lines)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def _ask(llm: BaseChatModel, config: dict, user_message: str) -> str:
     response = await llm.ainvoke(
         [
@@ -41,12 +68,18 @@ async def _ask(llm: BaseChatModel, config: dict, user_message: str) -> str:
     return str(response.content)
 
 
-def build_graph(client: MCPClient, llm: BaseChatModel) -> CompiledStateGraph:
+def build_graph(
+    client: MCPClient,
+    llm: BaseChatModel,
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> CompiledStateGraph:
     async def node_generate_profile(state: AgentState) -> dict:
+        transcript = _format_transcript(state["messages"])
         profile = await _ask(
             llm,
             USER_PROFILE_GENERATOR,
-            f"Build a user profile from this input (visit history / preferences):\n\n{state['user_input']}",
+            "Build (or update, if this is a follow-up) a user profile from this "
+            f"conversation so far:\n\n{transcript}",
         )
         return {"user_profile": profile}
 
@@ -58,7 +91,7 @@ def build_graph(client: MCPClient, llm: BaseChatModel) -> CompiledStateGraph:
             f"preamble) to find matching restaurants and food images:\n\n{state['user_profile']}",
         )
         try:
-            result = await client.call_tool("fuse_search", {"query": query.strip(), "k": 10})
+            result = await client.call_tool_as_agent("fuse_search", {"query": query.strip(), "k": 10})
         except Exception:
             logger.exception("RAG retrieval failed")
             result = "[]"
@@ -108,7 +141,9 @@ def build_graph(client: MCPClient, llm: BaseChatModel) -> CompiledStateGraph:
             "relevant, recipes, each with a short explanation grounded in the analyses "
             f"below.\n\n{json.dumps(payload, ensure_ascii=False)}",
         )
-        return {"final_recommendation": final}
+        # Recorded back into the transcript so a follow-up turn's profile/
+        # retrieval nodes can see what was already recommended.
+        return {"final_recommendation": final, "messages": [AIMessage(content=final)]}
 
     graph = StateGraph(AgentState)
     graph.add_node("profile", node_generate_profile)
@@ -128,47 +163,71 @@ def build_graph(client: MCPClient, llm: BaseChatModel) -> CompiledStateGraph:
     graph.add_edge("nutrition", "recommend")
     graph.add_edge("recommend", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
-async def run_recommendation(user_input: str, client: MCPClient | None = None) -> AgentState:
+def _thread_config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+async def stream_graph_events(
+    graph: CompiledStateGraph, user_input: str, thread_id: str
+) -> AsyncIterator[dict]:
+    """Yields {"stage": <node name>, "data": <node output>} as each node
+    completes, then a final {"stage": "done", "data": <full state>}."""
+    final_state: dict = {}
+    config = _thread_config(thread_id)
+    async for update in graph.astream(
+        {"messages": [HumanMessage(content=user_input)]}, config=config, stream_mode="updates"
+    ):
+        for node_name, node_output in update.items():
+            final_state.update(node_output)
+            # `messages` carries LangChain message objects (needed internally for the
+            # checkpointer's add_messages reducer) - not JSON-serializable as-is and not
+            # useful to a caller that already has trend/style/nutrition/recommend text.
+            yield {"stage": node_name, "data": {k: v for k, v in node_output.items() if k != "messages"}}
+    yield {"stage": "done", "data": {k: v for k, v in final_state.items() if k != "messages"}}
+
+
+async def run_recommendation(user_input: str, client: MCPClient | None = None, thread_id: str = "cli") -> dict:
     """If `client` is omitted, opens (and tears down) a one-off MCP connection —
     fine for the CLI, but the API layer should always pass its long-lived client
     (see api/main.py's lifespan) so the embedding models aren't cold-loaded in a
     fresh subprocess on every request."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
     from backend.core.llm import get_agent_model
 
     llm = get_agent_model()
     if client is not None:
-        graph = build_graph(client, llm)
-        return await graph.ainvoke({"user_input": user_input})
+        graph = build_graph(client, llm, checkpointer=InMemorySaver())
+        return await graph.ainvoke({"messages": [HumanMessage(content=user_input)]}, config=_thread_config(thread_id))
 
     async with MCPClient() as owned_client:
-        graph = build_graph(owned_client, llm)
-        return await graph.ainvoke({"user_input": user_input})
+        graph = build_graph(owned_client, llm, checkpointer=InMemorySaver())
+        return await graph.ainvoke({"messages": [HumanMessage(content=user_input)]}, config=_thread_config(thread_id))
 
 
-async def stream_recommendation(user_input: str, client: MCPClient | None = None):
-    """Yields {"stage": <node name>, "data": <node output>} as each node
-    completes, then a final {"stage": "done", "data": <full state>}."""
+async def stream_recommendation(user_input: str, client: MCPClient | None = None, thread_id: str = "cli"):
+    """CLI convenience wrapper: builds its own graph + in-memory checkpointer
+    per call. Each CLI invocation is a fresh process, so nothing persists
+    across separate `backend-cli recommend` runs regardless of `thread_id` —
+    real cross-turn memory only works against the API, which builds one graph
+    + checkpointer at startup and reuses it for the process's lifetime (see
+    api/main.py's lifespan)."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
     from backend.core.llm import get_agent_model
 
     llm = get_agent_model()
 
-    async def _run(active_client: MCPClient):
-        graph = build_graph(active_client, llm)
-        final_state: dict = {"user_input": user_input}
-        async for update in graph.astream({"user_input": user_input}, stream_mode="updates"):
-            for node_name, node_output in update.items():
-                final_state.update(node_output)
-                yield {"stage": node_name, "data": node_output}
-        yield {"stage": "done", "data": final_state}
-
     if client is not None:
-        async for event in _run(client):
+        graph = build_graph(client, llm, checkpointer=InMemorySaver())
+        async for event in stream_graph_events(graph, user_input, thread_id):
             yield event
         return
 
     async with MCPClient() as owned_client:
-        async for event in _run(owned_client):
+        graph = build_graph(owned_client, llm, checkpointer=InMemorySaver())
+        async for event in stream_graph_events(graph, user_input, thread_id):
             yield event

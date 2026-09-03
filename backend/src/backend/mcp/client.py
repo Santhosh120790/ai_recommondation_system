@@ -17,6 +17,23 @@ from backend.core.llm import get_raw_client
 
 logger = logging.getLogger(__name__)
 
+# Guardrail: tools the LangGraph agents are allowed to call autonomously.
+# Deliberately excludes add_restaurant / delete_restaurant — those stay
+# reachable only from the FastAPI CRUD routers, driven by an explicit human
+# action in the UI (which is itself confirm-gated). No amount of prompt
+# injection or agent reasoning can make the graph reach a write tool: it's
+# not just gated on confirm=True, it isn't in the callable set at all.
+AGENT_SAFE_TOOLS = frozenset(
+    {
+        "get_restaurant_info",
+        "recommend_by_vibe",
+        "get_review",
+        "search_restaurants",
+        "search_food_images",
+        "fuse_search",
+    }
+)
+
 
 async def _sampling_callback(
     context: object,
@@ -95,3 +112,13 @@ class MCPClient:
             raise RuntimeError(f"MCP tool '{name}' failed: {result.content}")
         text_parts = [c.text for c in result.content if hasattr(c, "text")]
         return "\n".join(text_parts)
+
+    async def call_tool_as_agent(self, name: str, arguments: dict) -> str:
+        """Same as call_tool, but enforces the AGENT_SAFE_TOOLS allowlist first.
+        This is the only entry point the LangGraph agent nodes use."""
+        if name not in AGENT_SAFE_TOOLS:
+            raise PermissionError(
+                f"Tool '{name}' is not in the agent-safe allowlist ({sorted(AGENT_SAFE_TOOLS)}); "
+                "destructive/write tools are only reachable via the FastAPI CRUD routers."
+            )
+        return await self.call_tool(name, arguments)
